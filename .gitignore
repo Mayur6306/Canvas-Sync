@@ -1,0 +1,8 @@
+venv/
+__pycache__
+.vscode
+.env
+client_secret.json
+google_cred.json
+token.json
+Token.py
