@@ -1,12 +1,14 @@
-from langgraph.graph import StateGraph, MessagesState, START, END
+import langgraph
+import Load_Info
+import Sheets
+from typing_extensions import TypedDict
 
-def mock_llm(state: MessagesState):
-    return {"messages": [{"role": "ai", "content": "hello world"}]}
+class State(TypedDict):
+    canvas_assignments: list[dict]
+    sheet_assignments: list[dict]
+    logs: list[str]
+    ops: list[dict]
+    
 
-graph = StateGraph(MessagesState)
-graph.add_node(mock_llm)
-graph.add_edge(START, "mock_llm")
-graph.add_edge("mock_llm", END)
-graph = graph.compile()
 
-graph.invoke({"messages": [{"role": "user", "content": "hi!"}]})
+

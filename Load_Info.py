@@ -51,14 +51,14 @@ def get_assignments(canvas_url: str, courses: list[int], canvas_token: str) -> d
                 "due_date_utc":info['due_at'],
                 "updated_at":info['updated_at']
                 }
+            
             assignments.append(assignment)
     
     return assignments
         
 
+if __name__ == "__main__":
+    courses = get_courses(CANVAS_URL, CANVAS_TOKEN)
 
- 
-courses = get_courses(CANVAS_URL, CANVAS_TOKEN)
-
-print(courses)
-print(get_assignments(CANVAS_URL, courses, CANVAS_TOKEN))
+    print(courses)
+    print(get_assignments(CANVAS_URL, courses, CANVAS_TOKEN))

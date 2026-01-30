@@ -20,9 +20,15 @@ SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive.file']
 
+COLUMNS = [
+    "course_name", "assignment_name", "due_date", "days_left", "priority", "status", "submitted", "notes", "link",
+    "sync_id", "source", "due_date_utc", "content_hash", "created_at", "updated_at", "last_synced"
+          ]
+
+
 
 # Creates Sheets & Drive Serivces
-def build_services(credentials, scopes, account="SA"):
+def build_services(credentials=GOOGLE_CREDS, scopes=SCOPES, account="SA"):
     if account == "SA":
         creds = SA_Credentials.from_service_account_file(credentials, scopes=scopes)
     elif account == "OAUTH":
@@ -33,13 +39,16 @@ def build_services(credentials, scopes, account="SA"):
 
     return sheet_service, drive_service
 
+SHEET_SERVICE, DRIVE_SERVICE = build_services()
+
+
 # Creates new Spreadsheet
 def create_spreadsheet(title: str):
 
     scopes = ['https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/drive']
 
-    sheet_service, drive_service = build_services(GOOGLE_TOKEN, scopes, account="OAUTH")
+    sheet_service, drive_service = build_services(credentials=GOOGLE_TOKEN, scopes=scopes, account="OAUTH")
 
     try:
         spreadsheet = {"properties": {"title": title}}
@@ -71,7 +80,7 @@ def create_spreadsheet(title: str):
 
 # Checks if SPREADSHEET_ID exists
 #TODO: Update for Github Actions
-def check_spreadsheet_id(spreadsheet_id: str | None, title) -> str:
+def check_spreadsheet_id(title, spreadsheet_id=SPREADSHEET_ID) -> str:
     if not spreadsheet_id:
         spreadsheet_id = create_spreadsheet(title)  # your function that calls Google API
         # also write to .env so future runs see it
@@ -79,12 +88,16 @@ def check_spreadsheet_id(spreadsheet_id: str | None, title) -> str:
             f.write(f"SPREADSHEET_ID={spreadsheet_id}\n")
     return spreadsheet_id
 
-def get_sheet_id(sheet_service, spreadsheet_id, sheet_title):
+# Gets sheet id from sheet title
+def get_sheet_id(sheet_service=SHEET_SERVICE, spreadsheet_id=SPREADSHEET_ID, sheet_title=''):
 
     sheet = sheet_service.spreadsheets().get(
         spreadsheetId=spreadsheet_id,
         fields="sheets(properties(sheetId,title))"
     ).execute()
+
+    if sheet_title == '':
+        return sheet["sheets"][0]['properties']['sheetId']
      
     for s in sheet["sheets"]:
         p = s["properties"]
@@ -92,7 +105,7 @@ def get_sheet_id(sheet_service, spreadsheet_id, sheet_title):
             return p["sheetId"]
     raise ValueError(f"Sheet '{sheet_title}' not found")
 
-def get_row_count(sheets_service, spreadsheet_id: str, sheet_id: int) -> int:
+def get_row_count(sheet_id: int, sheets_service=SHEET_SERVICE, spreadsheet_id=SPREADSHEET_ID) -> int:
     sheet = sheets_service.spreadsheets().get(
         spreadsheetId=spreadsheet_id,
         fields="sheets(properties(sheetId,gridProperties(rowCount)))"
@@ -103,7 +116,7 @@ def get_row_count(sheets_service, spreadsheet_id: str, sheet_id: int) -> int:
         if props["sheetId"] == sheet_id:
             return props["gridProperties"].get("rowCount", 0)
 
-def get_column_count(sheet_service, spreadsheet_id, sheet_id):
+def get_column_count(sheet_id: int, sheet_service=SHEET_SERVICE, spreadsheet_id=SPREADSHEET_ID):
     sheet = sheet_service.spreadsheets().get(
         spreadsheetId=spreadsheet_id,
         fields="sheets(properties(sheetId,gridProperties(columnCount)))"
@@ -114,7 +127,9 @@ def get_column_count(sheet_service, spreadsheet_id, sheet_id):
         if props["sheetId"] == sheet_id:
             return props["gridProperties"].get("columnCount", 0)
 
-def intitialize_sheet(sheet_service, spreadsheet_id=None):
+# TODO Update Conditional Formatting to be for per course
+# TODO Update add sheets to per term
+def intitialize_sheet(spreadsheet_id=SPREADSHEET_ID, sheet_service=SHEET_SERVICE, header=COLUMNS):
 
     
     spreadsheet_id = check_spreadsheet_id(spreadsheet_id, "Canvas Assignment Database")
@@ -123,13 +138,15 @@ def intitialize_sheet(sheet_service, spreadsheet_id=None):
         
         spreadsheet = sheet_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
         
-        sheet_id = get_sheet_id(sheet_service, spreadsheet_id, "Sheet1")
+        sheet_id = get_sheet_id(sheet_service, spreadsheet_id)
 
         col_count = get_column_count(sheet_service,spreadsheet_id, sheet_id)
         row_count = get_row_count(sheet_service, spreadsheet_id, sheet_id)
 
         # Header row text (A1:G1) via Values API
-        header = [["Assignment","Course","Due Date","Priority","Status","Submitted","Notes"]]
+
+        header = [col.replace("_"," ").title() for col in header[:9]] + header[9:]
+        
         sheet_service.spreadsheets().values().update(
             spreadsheetId=spreadsheet_id,
             range="A1:G1",
@@ -138,7 +155,7 @@ def intitialize_sheet(sheet_service, spreadsheet_id=None):
         ).execute()
 
         requests = [
-        # Rename first tab → "Upcoming"
+        # Rename first tab → "Assignements"
         {
             "updateSheetProperties": {
                 "properties": {"sheetId": sheet_id, "title": "Assignments"},
@@ -427,86 +444,33 @@ def intitialize_sheet(sheet_service, spreadsheet_id=None):
         print(f"An error occurred: {error}")
         return error
 
+# TODO Returns sheet
+def read_sheet(sheet_service=SHEET_SERVICE):
+    ...
 
-def sync_assignments(sheet_service, spreadsheet_id, assignments, upcoming_title="Upcoming", completed_title="Completed"):
-    """Send assignments to Upcoming/Completed tabs based on submission state."""
-    true_markers = {"true", "yes", "y", "submitted", "1"}
+# TODO adds assignment to sheet, sorts by due date
+def add_row(sheet_service=SHEET_SERVICE):
+    ...
 
-    def normalize_submitted(value):
-        if isinstance(value, str):
-            return value.strip().lower() in true_markers
-        return bool(value)
+def update_row(sheet_service=SHEET_SERVICE):
+    ...
 
-    def format_due_date(value):
-        if value is None:
-            return ""
-        if isinstance(value, datetime):
-            return value.strftime("%m/%d/%Y %I:%M %p")
-        if isinstance(value, date):
-            return value.strftime("%m/%d/%Y")
-        text = str(value).strip()
-        if not text:
-            return ""
-        if text.endswith("Z"):
-            text = f"{text[:-1]}+00:00"
-        try:
-            parsed = datetime.fromisoformat(text)
-        except ValueError:
-            return str(value)
-        return parsed.strftime("%m/%d/%Y %I:%M %p")
 
-    upcoming_rows = []
-    completed_rows = []
-
-    for name, course, due_date, submitted in assignments or []:
-        submitted_flag = normalize_submitted(submitted)
-        row = [
-            name,
-            course,
-            format_due_date(due_date),
-            "",
-            "",
-            "Yes" if submitted_flag else "No",
-            "",
-        ]
-        if submitted_flag:
-            completed_rows.append(row)
-        else:
-            upcoming_rows.append(row)
-
-    clear_body = {"ranges": [f"{upcoming_title}!A2:G", f"{completed_title}!A2:G"]}
-    sheet_service.spreadsheets().values().batchClear(
-        spreadsheetId=spreadsheet_id,
-        body=clear_body,
+if __name__ == '__main__':
+    """
+    sheet = SHEET_SERVICE.spreadsheets().get(
+        spreadsheetId=SPREADSHEET_ID,
+        fields="sheets(properties(sheetId,title))"
     ).execute()
 
-    data = []
-    if upcoming_rows:
-        data.append({"range": f"{upcoming_title}!A2:G", "values": upcoming_rows})
-    if completed_rows:
-        data.append({"range": f"{completed_title}!A2:G", "values": completed_rows})
+    print([s["properties"]["title"] for s in sheet["sheets"]])
 
-    if data:
-        sheet_service.spreadsheets().values().batchUpdate(
-            spreadsheetId=spreadsheet_id,
-            body={"valueInputOption": "USER_ENTERED", "data": data},
-        ).execute()
+    intitialize_sheet(SHEET_SERVICE, spreadsheet_id=SPREADSHEET_ID)
 
+    print([s["properties"]["title"] for s in sheet["sheets"]])
+    """
 
-sheet_service, drive_service = build_services(GOOGLE_CREDS, SCOPES)
+    header = [col.replace("_"," ").title() for col in COLUMNS[:9]] + COLUMNS[9:]
 
-sheet = sheet_service.spreadsheets().get(
-    spreadsheetId=SPREADSHEET_ID,
-    fields="sheets(properties(sheetId,title))"
-).execute()
+    print(header)
 
-print([s["properties"]["title"] for s in sheet["sheets"]])
-
-intitialize_sheet(sheet_service, spreadsheet_id=SPREADSHEET_ID)
-
-print([s["properties"]["title"] for s in sheet["sheets"]])
-
-
-
-#spreadsheet = sheet_service.spreadsheets().get(spreadsheetId="1HPWK-8Frb1nwhcHf9ghZqjrt-IDUJzVJxs1jNr_y-N0").execute()
-#print(f"✅ Connected to Google Sheet: {spreadsheet['properties']['title']}")
